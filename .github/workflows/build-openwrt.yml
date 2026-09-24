@@ -1,0 +1,124 @@
+name: Build OpenWrt (LEDE) Firmware
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_seed:
+        description: '选择 config 目录下的 seed 配置文件名 (不带 .seed.config 后缀)'
+        required: true
+        default: 'jdcloud_re-ss-01'
+      custom_ip:
+        description: '默认 LAN IP 地址'
+        required: false
+        default: '10.0.0.1'
+      custom_ssid:
+        description: '默认 WiFi SSID'
+        required: false
+        default: 'LEDE-WIFI'
+
+env:
+  REPO_URL: https://github.com/coolsnowwolf/lede.git
+  REPO_BRANCH: master
+  CONFIG_FILE: config/${{ github.event.inputs.target_seed || 'jdcloud_re-ss-01' }}.seed.config
+  CUSTOM_SCRIPT: custom.sh
+  TZ: Asia/Shanghai
+
+jobs:
+  build:
+    name: Build Firmware
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 1. 检出当前项目代码 (Checkout Repository)
+        uses: actions/checkout@v4
+
+      - name: 2. 初始化环境与安装编译依赖 (Setup Environment)
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          sudo -E apt-get clean && sudo rm -rf /var/lib/apt/lists/*
+          sudo -E apt-get update -y
+          sudo -E apt-get install -y --no-install-recommends \
+            ack antlr3 asciidoc autoconf automake autopoint binutils bison build-essential \
+            bzip2 ccache clang cmake cpio curl device-tree-compiler fastjar flex gawk gettext \
+            gcc-multilib g++-multilib genisoimage git gperf haveged help2man intltool libc6-dev-i386 \
+            libelf-dev libfuse-dev libglib2.0-dev libgmp-dev libltdl-dev libmpc-dev libmpfr-dev \
+            libncurses-dev libpython3-dev libreadline-dev libssl-dev libtool llvm locales lrzsz \
+            ninja-build p7zip p7zip-full patch pkgconf python3 python3-pyelftools python3-setuptools \
+            qemu-utils rsync scons squashfs-tools subversion swig texinfo uglifyjs upx-ucl unzip \
+            vim wget xmlto xxd xz-utils zlib1g-dev sudo tzdata
+          sudo timedatectl set-timezone "${TZ}"
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+
+      - name: 3. 克隆 LEDE 官方源码 (Clone Source Code)
+        run: |
+          git clone --depth 1 -b $REPO_BRANCH $REPO_URL lede
+          echo "LEDE_PATH=$GITHUB_WORKSPACE/lede" >> $GITHUB_ENV
+
+      - name: "4. 运行 custom.sh 注入自定义配置 (Run custom.sh: Feeds / IP / WiFi)"
+        env:
+          CUSTOM_LAN_IP: ${{ github.event.inputs.custom_ip || '10.0.0.1' }}
+          CUSTOM_WIFI_SSID: ${{ github.event.inputs.custom_ssid || 'LEDE-WIFI' }}
+        run: |
+          chmod +x "$GITHUB_WORKSPACE/$CUSTOM_SCRIPT"
+          "$GITHUB_WORKSPACE/$CUSTOM_SCRIPT" "$LEDE_PATH"
+
+      - name: 5. 更新与安装 Feeds (Update & Install Feeds)
+        run: |
+          cd $LEDE_PATH
+          for i in {1..3}; do
+            ./scripts/feeds update -a && break || { echo "[$i/3] Feeds 更新重试中..."; sleep 5; }
+          done
+          ./scripts/feeds install -a
+
+      - name: 6. 加载 Seed Config 并生成 defconfig (Load Seed & Generate defconfig)
+        run: |
+          cd $LEDE_PATH
+          if [ -f "$GITHUB_WORKSPACE/$CONFIG_FILE" ]; then
+            echo "[+] 正在载入 Seed 配置文件: $CONFIG_FILE"
+            cp -f "$GITHUB_WORKSPACE/$CONFIG_FILE" .config
+          else
+            echo "[-] 警告: 未找到 $CONFIG_FILE，将使用默认配置！"
+          fi
+          
+          FORCE=1 make defconfig
+          echo "[✓] defconfig 生成完成！目标架构摘要："
+          grep -E '^CONFIG_TARGET_(BOARD|SUBTARGET|ARCH_PACKAGES|qualcommax)=' .config || true
+
+      - name: 7. 预下载依赖包 (Download Package Dependencies)
+        run: |
+          cd $LEDE_PATH
+          make download -j8 || make download -j1 V=s
+          find dl -size -1024c -exec ls -l {} \;
+          find dl -size -1024c -exec rm -f {} \;
+
+      - name: 8. 编译固件 (Compile Firmware)
+        id: compile
+        run: |
+          cd $LEDE_PATH
+          echo "编译线程数: $(nproc)"
+          echo "=========================================================="
+          echo "开始编译固件..."
+          if make -j$(nproc); then
+            echo "[+] 编译成功！"
+          else
+            echo "[!] 并发编译失败，降级为单线程排查错误日志..."
+            make -j1 V=s
+          fi
+          echo "status=success" >> $GITHUB_OUTPUT
+
+      - name: 9. 收集与整理固件产物 (Collect Artifacts)
+        if: steps.compile.outputs.status == 'success'
+        run: |
+          cd $LEDE_PATH
+          mkdir -p $GITHUB_WORKSPACE/release
+          find bin/targets/ -type f \( -name "*.img.gz" -o -name "*.bin" -o -name "*.iso" -o -name "*.tar.gz" -o -name "sha256sums" -o -name "config.buildinfo" -o -name "*.manifest" -o -name "profiles.json" \) -exec cp -v {} $GITHUB_WORKSPACE/release/ \;
+          echo "RELEASE_PATH=$GITHUB_WORKSPACE/release" >> $GITHUB_ENV
+          echo "BUILD_DATE=$(date +'%Y%m%d%H%M')" >> $GITHUB_ENV
+
+      - name: 10. 上传固件至 GitHub Artifacts (Upload Artifacts)
+        if: steps.compile.outputs.status == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpenWrt_Firmware_${{ github.event.inputs.target_seed || 'jdcloud_re-ss-01' }}_${{ env.BUILD_DATE }}
+          path: ${{ env.RELEASE_PATH }}/*
