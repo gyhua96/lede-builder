@@ -15,6 +15,18 @@ on:
         description: '默认 WiFi SSID'
         required: false
         default: 'LEDE-WIFI'
+      wan_proto:
+        description: 'WAN 口上网方式 (dhcp 或 pppoe)'
+        required: false
+        default: 'dhcp'
+      pppoe_user:
+        description: 'PPPoE 宽带账号 (wan_proto 选 pppoe 时生效)'
+        required: false
+        default: ''
+      pppoe_pass:
+        description: 'PPPoE 宽带密码 (wan_proto 选 pppoe 时生效)'
+        required: false
+        default: ''
 
 env:
   REPO_URL: https://github.com/coolsnowwolf/lede.git
@@ -55,10 +67,13 @@ jobs:
           git clone --depth 1 -b $REPO_BRANCH $REPO_URL lede
           echo "LEDE_PATH=$GITHUB_WORKSPACE/lede" >> $GITHUB_ENV
 
-      - name: "4. 运行 custom.sh 注入自定义配置 (Run custom.sh: Feeds / IP / WiFi)"
+      - name: "4. 运行 custom.sh 注入自定义配置 (Run custom.sh: Feeds / IP / WiFi / WAN)"
         env:
           CUSTOM_LAN_IP: ${{ github.event.inputs.custom_ip || '10.0.0.1' }}
           CUSTOM_WIFI_SSID: ${{ github.event.inputs.custom_ssid || 'LEDE-WIFI' }}
+          WAN_PROTO: ${{ github.event.inputs.wan_proto || 'dhcp' }}
+          PPPOE_USER: ${{ github.event.inputs.pppoe_user || '' }}
+          PPPOE_PASS: ${{ github.event.inputs.pppoe_pass || '' }}
         run: |
           chmod +x "$GITHUB_WORKSPACE/$CUSTOM_SCRIPT"
           "$GITHUB_WORKSPACE/$CUSTOM_SCRIPT" "$LEDE_PATH"

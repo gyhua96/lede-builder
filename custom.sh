@@ -4,7 +4,10 @@
 # 作用：OpenWrt / LEDE 全套自定义配置总入口
 # 职责：
 #   1. 自动配置 feeds.conf.default（剔除 helloworld，精准合入 passwall 官方源）
-#   2. 注入开机初始化网络脚本（默认 IP 设为 10.0.0.1、配置 WiFi SSID 与启用状态）
+#   2. 注入开机初始化网络脚本：
+#      - 默认 LAN IP 设为 10.0.0.1
+#      - 默认开启 WiFi，设置 SSID 与密码
+#      - 支持配置 WAN 口上网方式（DHCP 或 PPPoE 拨号账号密码）
 #   3. 通过 files/etc/uci-defaults/ 机制实现，不修改任何源码 tracked 文件
 # ==============================================================================
 set -euo pipefail
@@ -15,10 +18,15 @@ CUSTOM_NETMASK="${CUSTOM_NETMASK:-255.255.255.0}"
 CUSTOM_WIFI_SSID="${CUSTOM_WIFI_SSID:-LEDE-WIFI}"
 CUSTOM_WIFI_KEY="${CUSTOM_WIFI_KEY:-}"                   # 留空为无密码
 CUSTOM_WIFI_ENCRYPTION="${CUSTOM_WIFI_ENCRYPTION:-none}" # "none" 或 "psk2"
-CUSTOM_WIFI_ENABLE="${CUSTOM_WIFI_ENABLE:-1}"           # 1=开启, 0=关闭
+CUSTOM_WIFI_ENABLE="${CUSTOM_WIFI_ENABLE:-0}"           # 0=开启无线(OpenWrt disabled=0代表启用), 1=禁用
 CUSTOM_HOSTNAME="${CUSTOM_HOSTNAME:-LEDE-Router}"
 CUSTOM_TIMEZONE="${CUSTOM_TIMEZONE:-CST-8}"
 CUSTOM_ZONENAME="${CUSTOM_ZONENAME:-Asia/Shanghai}"
+
+# WAN 拨号相关变量
+WAN_PROTO="${WAN_PROTO:-dhcp}"                           # "dhcp" 或 "pppoe"
+PPPOE_USER="${PPPOE_USER:-}"
+PPPOE_PASS="${PPPOE_PASS:-}"
 
 if [ ! -d "${TARGET_DIR}" ]; then
     echo "[-] 错误: 目标源码目录 '${TARGET_DIR}' 不存在！" >&2
@@ -30,7 +38,11 @@ echo "          执行 custom.sh 全套自定义配置注入"
 echo "=========================================================="
 echo "源码目录:    ${TARGET_DIR}"
 echo "默认管理 IP: ${CUSTOM_LAN_IP} (${CUSTOM_NETMASK})"
-echo "默认 WiFi:   ${CUSTOM_WIFI_SSID} (加密: ${CUSTOM_WIFI_ENCRYPTION})"
+echo "默认 WiFi:   ${CUSTOM_WIFI_SSID} (默认开启, 加密: ${CUSTOM_WIFI_ENCRYPTION})"
+echo "WAN 口协议:  ${WAN_PROTO}"
+if [ "${WAN_PROTO}" = "pppoe" ]; then
+    echo "PPPoE 账号:  ${PPPOE_USER:-未指定}"
+fi
 echo "系统主机名:  ${CUSTOM_HOSTNAME}"
 echo "=========================================================="
 
@@ -83,7 +95,18 @@ uci -q batch <<-UCI_LAN
 UCI_LAN
 uci commit network
 
-# 2. 设置系统主机名与时区
+# 2. 配置 WAN 口上网协议 (DHCP 或 PPPoE)
+if [ "${WAN_PROTO}" = "pppoe" ] && [ -n "${PPPOE_USER}" ]; then
+	uci -q batch <<-UCI_WAN
+		set network.wan.proto='pppoe'
+		set network.wan.username='${PPPOE_USER}'
+		set network.wan.password='${PPPOE_PASS}'
+		set network.wan.ipv6='auto'
+	UCI_WAN
+	uci commit network
+fi
+
+# 3. 设置系统主机名与时区
 uci -q batch <<-UCI_SYS
 	set system.@system[0].hostname='${CUSTOM_HOSTNAME}'
 	set system.@system[0].timezone='${CUSTOM_TIMEZONE}'
@@ -91,13 +114,13 @@ uci -q batch <<-UCI_SYS
 UCI_SYS
 uci commit system
 
-# 3. 设置默认 WiFi
+# 4. 默认开启并配置 WiFi
 if [ ! -f /etc/config/wireless ]; then
 	/sbin/wifi config 2>/dev/null || true
 fi
 
 if [ -f /etc/config/wireless ]; then
-	# 开启全部无线射频设备
+	# 开启全部无线射频设备 (disabled=0 即开启无线)
 	for dev in \$(uci show wireless | grep '=wifi-device' | cut -d'.' -f2 | cut -d'=' -f1); do
 		uci set wireless.\${dev}.disabled='${CUSTOM_WIFI_ENABLE}'
 		uci set wireless.\${dev}.country='CN'
@@ -106,6 +129,7 @@ if [ -f /etc/config/wireless ]; then
 	# 配置无线接口 SSID 与密码
 	idx=0
 	for iface in \$(uci show wireless | grep '=wifi-iface' | cut -d'.' -f2 | cut -d'=' -f1); do
+		uci set wireless.\${iface}.disabled='0'
 		if [ \$idx -eq 0 ]; then
 			uci set wireless.\${iface}.ssid='${CUSTOM_WIFI_SSID}'
 		else
