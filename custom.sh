@@ -164,6 +164,11 @@ if [ -f /etc/config/wireless ]; then
 	/sbin/wifi reload 2>/dev/null || true
 fi
 
+# 5. 对齐 SSH Banner 版本信息 (与 Web 页面 LEDE R26.05.20 保持一致)
+if [ -f /etc/banner ]; then
+	sed -i -E 's/OpenWrt[[:space:]]+[0-9.]+/LEDE R26.05.20/g' /etc/banner
+fi
+
 exit 0
 EOF
 
