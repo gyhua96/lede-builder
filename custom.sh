@@ -6,8 +6,8 @@
 #   1. 自动配置 feeds.conf.default（剔除 helloworld，精准合入 passwall 官方源）
 #   2. 注入开机初始化网络脚本：
 #      - 默认 LAN IP 设为 10.0.0.1
-#      - 默认开启 WiFi，设置 SSID 与密码
-#      - 支持配置 WAN 口上网方式（DHCP 或 PPPoE 拨号账号密码）
+#      - 默认开启 WiFi，智能识别 2.4G 与 5G 频段设置 SSID
+#      - 支持配置 WAN 口上网协议（DHCP 或 PPPoE 拨号账号密码）
 #   3. 通过 files/etc/uci-defaults/ 机制实现，不修改任何源码 tracked 文件
 # ==============================================================================
 set -euo pipefail
@@ -38,7 +38,7 @@ echo "          执行 custom.sh 全套自定义配置注入"
 echo "=========================================================="
 echo "源码目录:    ${TARGET_DIR}"
 echo "默认管理 IP: ${CUSTOM_LAN_IP} (${CUSTOM_NETMASK})"
-echo "默认 WiFi:   ${CUSTOM_WIFI_SSID} (默认开启, 加密: ${CUSTOM_WIFI_ENCRYPTION})"
+echo "默认 WiFi:   ${CUSTOM_WIFI_SSID} (2.4G 为原名称, 5G 自动附加 _5G 后缀)"
 echo "WAN 口协议:  ${WAN_PROTO}"
 if [ "${WAN_PROTO}" = "pppoe" ]; then
     echo "PPPoE 账号:  ${PPPOE_USER:-未指定}"
@@ -114,26 +114,42 @@ uci -q batch <<-UCI_SYS
 UCI_SYS
 uci commit system
 
-# 4. 默认开启并配置 WiFi
+# 4. 默认开启并配置 WiFi（精准识别 2.4G 与 5G 频段，杜绝颠倒）
 if [ ! -f /etc/config/wireless ]; then
 	/sbin/wifi config 2>/dev/null || true
 fi
 
 if [ -f /etc/config/wireless ]; then
-	# 开启全部无线射频设备 (disabled=0 即开启无线)
+	# 开启全部无线射频硬件 (disabled=0 即开启无线)
 	for dev in \$(uci show wireless | grep '=wifi-device' | cut -d'.' -f2 | cut -d'=' -f1); do
 		uci set wireless.\${dev}.disabled='${CUSTOM_WIFI_ENABLE}'
 		uci set wireless.\${dev}.country='CN'
 	done
 
-	# 配置无线接口 SSID 与密码
-	idx=0
+	# 遍历无线接口，读取对应射频设备的 band / channel 精准判定频段
 	for iface in \$(uci show wireless | grep '=wifi-iface' | cut -d'.' -f2 | cut -d'=' -f1); do
 		uci set wireless.\${iface}.disabled='0'
-		if [ \$idx -eq 0 ]; then
-			uci set wireless.\${iface}.ssid='${CUSTOM_WIFI_SSID}'
-		else
+		dev=\$(uci -q get wireless.\${iface}.device || echo "")
+		band=\$(uci -q get wireless.\${dev}.band || echo "")
+		channel=\$(uci -q get wireless.\${dev}.channel || echo "")
+		htmode=\$(uci -q get wireless.\${dev}.htmode || echo "")
+
+		is_5g=0
+		# 判定 1: 声明了 5g 或 6g 频段
+		if [ "\$band" = "5g" ] || [ "\$band" = "6g" ]; then
+			is_5g=1
+		# 判定 2: 信道大于 14 (标准 2.4G 最大信道为 14)
+		elif [ -n "\$channel" ] && [ "\$channel" -gt 14 ] 2>/dev/null; then
+			is_5g=1
+		# 判定 3: htmode 包含 VHT 或 HE80/HE160
+		elif echo "\$htmode" | grep -q -E 'VHT|HE80|HE160'; then
+			is_5g=1
+		fi
+
+		if [ "\$is_5g" -eq 1 ]; then
 			uci set wireless.\${iface}.ssid='${CUSTOM_WIFI_SSID}_5G'
+		else
+			uci set wireless.\${iface}.ssid='${CUSTOM_WIFI_SSID}'
 		fi
 
 		if [ -n "${CUSTOM_WIFI_KEY}" ]; then
@@ -143,7 +159,6 @@ if [ -f /etc/config/wireless ]; then
 			uci set wireless.\${iface}.encryption='none'
 			uci -q delete wireless.\${iface}.key
 		fi
-		idx=\$((idx + 1))
 	done
 	uci commit wireless
 	/sbin/wifi reload 2>/dev/null || true
