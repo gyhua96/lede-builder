@@ -21,11 +21,19 @@
 ## 预置特性与配置
 
 1. **默认管理 IP**：`10.0.0.1`（子网掩码：`255.255.255.0`）。
-2. **默认无线网络**：WiFi 默认开启（`disabled=0`），SSID 默认为 `LEDE-WIFI`（5G 频段自动带 `_5G` 后缀），默认使用 `psk2` 加密，密码为 `1234567890`（支持在 Workflow 中自定义或留空设为无密码）。
-3. **WAN 口支持 PPPoE / DHCP**：
+2. **默认无线网络与防休眠掉线**：
+   - WiFi 默认开启（`disabled=0`），SSID 默认为 `LEDE-WIFI`（5G 频段自动带 `_5G` 后缀）。
+   - 默认使用 `psk2` 加密，密码为 `1234567890`（支持在 Workflow 中自定义或留空设为无密码）。
+   - **防待机掉线调优**：禁用低应答暴力断开（`disassoc_low_ack=0`）、开启跳过空闲轮询探测（`skip_inactivity_poll=1`）、离线超时放宽至 10 分钟（`max_inactivity=600`），根治手机息屏待机断网。
+3. **WAN 口支持 PPPoE / DHCP 与防掉线心跳**：
    - 默认通过 DHCP 上网。
    - 在 Actions 触发或运行时传入 `wan_proto=pppoe` 以及宽带账号密码，即可直接刷机自动拨号。
-4. **插件源定制**：
+   - **PPPoE 稳定性加固**：预设 `keepalive='5 5'`（放宽 LCP 心跳，容忍 25 秒抖动，根治每 30~80 分钟整网短暂掉线）。
+4. **内存防崩溃保护 (Swap)**：
+   - 首次开机时自动利用 `/overlay` 空间生成并激活 512MB 虚拟内存（`/overlay/swapfile`），持久化注入 `/etc/rc.local` 开机自启，彻底杜绝 Passwall/Xray 高并发下的 OOM 闪退崩溃。
+5. **内核网络队列调优**：
+   - 预设 `net.ipv4.tcp_max_syn_backlog=2048` 与 `net.core.netdev_max_backlog=2048`，解决本地 DNS (端口 2004) 高并发 SYN flood 丢包与网页白屏卡顿。
+6. **插件源定制**：
    - 移除原仓库自带的 `helloworld` 源。
    - 自动集成官方 `passwall_packages` 与 `passwall2` 软件源。
 4. **默认设备配置**：

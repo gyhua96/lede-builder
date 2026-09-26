@@ -95,14 +95,19 @@ uci -q batch <<-UCI_LAN
 UCI_LAN
 uci commit network
 
-# 2. 配置 WAN 口上网协议 (DHCP 或 PPPoE)
+# 2. 配置 WAN 口上网协议 (DHCP 或 PPPoE，调优 PPPoE LCP 保活心跳)
 if [ "${WAN_PROTO}" = "pppoe" ] && [ -n "${PPPOE_USER}" ]; then
 	uci -q batch <<-UCI_WAN
 		set network.wan.proto='pppoe'
 		set network.wan.username='${PPPOE_USER}'
 		set network.wan.password='${PPPOE_PASS}'
 		set network.wan.ipv6='auto'
+		set network.wan.keepalive='5 5'
 	UCI_WAN
+	uci commit network
+else
+	# 即使是 DHCP，若后续用户手动切换为 PPPoE，也预设 keepalive 避免定时断网
+	uci -q set network.wan.keepalive='5 5'
 	uci commit network
 fi
 
@@ -126,9 +131,14 @@ if [ -f /etc/config/wireless ]; then
 		uci set wireless.\${dev}.country='CN'
 	done
 
-	# 遍历无线接口，读取对应射频设备的 band / channel 精准判定频段
+	# 遍历无线接口，读取对应射频设备的 band / channel 精准判定频段并调优防掉线参数
 	for iface in \$(uci show wireless | grep '=wifi-iface' | cut -d'.' -f2 | cut -d'=' -f1); do
 		uci set wireless.\${iface}.disabled='0'
+		# 防手机/移动设备锁屏待机断线调优
+		uci set wireless.\${iface}.disassoc_low_ack='0'
+		uci set wireless.\${iface}.skip_inactivity_poll='1'
+		uci set wireless.\${iface}.max_inactivity='600'
+
 		dev=\$(uci -q get wireless.\${iface}.device || echo "")
 		band=\$(uci -q get wireless.\${dev}.band || echo "")
 		channel=\$(uci -q get wireless.\${dev}.channel || echo "")
@@ -167,6 +177,30 @@ fi
 # 5. 对齐 SSH Banner 版本信息 (与 Web 页面 LEDE R26.05.20 保持一致)
 if [ -f /etc/banner ]; then
 	sed -i -E 's/OpenWrt[[:space:]]+[0-9.]+/LEDE R26.05.20/g' /etc/banner
+fi
+
+# 6. 系统网络内核参数调优 (解决高并发 DNS 查询丢包/SYN flood 告警及网页白屏)
+cat << 'SYSCTL_EOF' > /etc/sysctl.d/99-network-stability.conf
+net.ipv4.tcp_max_syn_backlog=2048
+net.core.netdev_max_backlog=2048
+SYSCTL_EOF
+sysctl -p /etc/sysctl.d/99-network-stability.conf 2>/dev/null || true
+
+# 7. 自动创建并激活 512MB Swap 虚拟内存 (根治 Passwall/Xray 内存击穿 OOM 被强杀)
+if [ ! -f /overlay/swapfile ] && [ -d /overlay ]; then
+	# 检查 /overlay 剩余可用空间 (KB)，大于 800MB 才自动创建
+	avail_kb=$(df -k /overlay | awk 'NR==2 {print $4}')
+	if [ -n "$avail_kb" ] && [ "$avail_kb" -gt 819200 ]; then
+		dd if=/dev/zero of=/overlay/swapfile bs=1M count=512 2>/dev/null
+		chmod 600 /overlay/swapfile
+		mkswap /overlay/swapfile 2>/dev/null
+		swapon /overlay/swapfile 2>/dev/null || true
+	fi
+fi
+
+# 将 Swap 自启持久化注入 /etc/rc.local
+if [ -f /etc/rc.local ] && ! grep -q "swapfile" /etc/rc.local; then
+	sed -i '/exit 0/i [ -f /overlay/swapfile ] && swapon /overlay/swapfile 2>/dev/null' /etc/rc.local
 fi
 
 exit 0
