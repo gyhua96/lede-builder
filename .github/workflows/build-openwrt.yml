@@ -15,6 +15,10 @@ on:
         description: '默认 WiFi SSID'
         required: false
         default: 'LEDE-WIFI'
+      custom_wifi_key:
+        description: '默认 WiFi 密码 (留空为无密码，默认 1234567890)'
+        required: false
+        default: '1234567890'
       wan_proto:
         description: 'WAN 口上网方式 (dhcp 或 pppoe)'
         required: false
@@ -71,6 +75,7 @@ jobs:
         env:
           CUSTOM_LAN_IP: ${{ github.event.inputs.custom_ip || '10.0.0.1' }}
           CUSTOM_WIFI_SSID: ${{ github.event.inputs.custom_ssid || 'LEDE-WIFI' }}
+          CUSTOM_WIFI_KEY: ${{ github.event.inputs.custom_wifi_key == null && '1234567890' || github.event.inputs.custom_wifi_key }}
           WAN_PROTO: ${{ github.event.inputs.wan_proto || 'dhcp' }}
           PPPOE_USER: ${{ github.event.inputs.pppoe_user || '' }}
           PPPOE_PASS: ${{ github.event.inputs.pppoe_pass || '' }}
