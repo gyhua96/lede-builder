@@ -90,6 +90,11 @@ jobs:
             ./scripts/feeds update -a && break || { echo "[$i/3] Feeds 更新重试中..."; sleep 5; }
           done
           ./scripts/feeds install -a
+          # 二次拦截：阻断 coremark 安装时生成的定时跑分脚本与 crontab 任务
+          if [ -d feeds/packages/utils/coremark ]; then
+            find feeds/packages/utils/coremark -type f -exec sed -i '/crontab/d' {} + 2>/dev/null || true
+            find feeds/packages/utils/coremark -type f -exec sed -i '/coremark\.sh/d' {} + 2>/dev/null || true
+          fi
 
       - name: 6. 加载 Seed Config 并生成 defconfig (Load Seed & Generate defconfig)
         run: |
