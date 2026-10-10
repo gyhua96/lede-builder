@@ -11,7 +11,8 @@
 │   └── workflows/
 │       └── build-openwrt.yml         # GitHub Actions 自动化编译流水线
 ├── config/
-│   └── jdcloud_re-ss-01.seed.config  # 目标设备精简差异配置 (京东云 RE-SS-01 / IPQ60xx)
+│   ├── jdcloud_re-ss-01.seed.config  # 目标设备精简差异配置 (京东云 RE-SS-01 / IPQ60xx)
+│   └── phicomm_k2p.seed.config       # 目标设备精简差异配置 (斐讯 K2P / MT7621)
 ├── custom.sh                         # 自定义配置注入脚本 (Feeds / 默认 IP / 默认 WiFi)
 └── README.md
 ```
