@@ -156,104 +156,80 @@ uci -q batch <<-UCI_SYS
 UCI_SYS
 uci commit system
 
-# 5. 默认开启并配置 WiFi（区分设备架构与驱动模型）
+# 5. 默认开启并配置 WiFi（自适应开源 mac80211 与 MTK 架构，精准识别 2.4G 与 5G）
 if [ ! -f /etc/config/wireless ]; then
 	/sbin/wifi config 2>/dev/null || true
 fi
 
 if [ -f /etc/config/wireless ]; then
-	if [ "${TARGET_SEED}" = "phicomm_k2p" ] || grep -q -i "k2p" /tmp/sysinfo/model 2>/dev/null; then
-		# ======================================================================
-		# 斐讯 K2P 专属无线适配 (MTK 闭源驱动 mt7615d_dbdc / ra0 & rax0)
-		# ======================================================================
-		# 1. 开启 2.4G (ra0) 与 5G (rax0) 设备
-		for dev in \$(uci show wireless | grep '=wifi-device' | cut -d'.' -f2 | cut -d'=' -f1); do
-			uci set wireless.\${dev}.disabled='${CUSTOM_WIFI_ENABLE}'
-			uci set wireless.\${dev}.country='CN'
-			channel=\$(uci -q get wireless.\${dev}.channel || echo "")
-			# 5G 锁定纯净 149 信道与 VHT80 频宽
-			if [ "\$channel" -gt 14 ] 2>/dev/null || [ "\$dev" = "radio0" ]; then
-				uci -q set wireless.\${dev}.channel='149'
-				uci -q set wireless.\${dev}.htmode='VHT80'
-			fi
-		done
+	# 1. 遍历无线射频硬件 (wifi-device)，精准配置 2.4G 与 5G 频段参数
+	for dev in \$(uci show wireless | grep '=wifi-device' | cut -d'.' -f2 | cut -d'=' -f1); do
+		uci set wireless.\${dev}.disabled='${CUSTOM_WIFI_ENABLE}'
+		uci set wireless.\${dev}.country='CN'
 
-		# 2. 严禁给虚拟接口 (wds*/apcli*) 绑定 SSID，只配置实体 AP 接口
-		for iface in \$(uci show wireless | grep '=wifi-iface' | cut -d'.' -f2 | cut -d'=' -f1); do
-			dev=\$(uci -q get wireless.\${iface}.device || echo "")
-			channel=\$(uci -q get wireless.\${dev}.channel || echo "")
-			if_name=\$(uci -q get wireless.\${iface}.ifname || echo "")
+		band=\$(uci -q get wireless.\${dev}.band || echo "")
+		htmode=\$(uci -q get wireless.\${dev}.htmode || echo "")
+		channel=\$(uci -q get wireless.\${dev}.channel || echo "0")
 
-			# 跳过 wds 和 apcli 内部桥接虚拟接口，避免 iwinfo 空指针崩溃 rpcd
-			if echo "\$if_name" | grep -q -E 'wds|apcli'; then
-				uci -q delete wireless.\${iface}.ssid
-				continue
-			fi
+		is_5g=0
+		if [ "\$band" = "5g" ] || [ "\$band" = "6g" ] || [ "\${channel:-0}" -gt 14 ] 2>/dev/null || echo "\$htmode" | grep -q -E 'VHT|HE80|HE160'; then
+			is_5g=1
+		fi
 
-			uci set wireless.\${iface}.disabled='0'
-			if [ "\$channel" -gt 14 ] 2>/dev/null || [ "\$dev" = "radio0" ]; then
-				uci set wireless.\${iface}.ssid='${CUSTOM_WIFI_SSID}_5G'
-			else
-				uci set wireless.\${iface}.ssid='${CUSTOM_WIFI_SSID}'
-			fi
-
-			if [ -n "${CUSTOM_WIFI_KEY}" ]; then
-				uci set wireless.\${iface}.encryption='${CUSTOM_WIFI_ENCRYPTION:-psk2}'
-				uci set wireless.\${iface}.key='${CUSTOM_WIFI_KEY}'
-			else
-				uci set wireless.\${iface}.encryption='none'
-				uci -q delete wireless.\${iface}.key
-			fi
-		done
-	else
-		# ======================================================================
-		# 通用 / 京东云 Wi-Fi 6 专属无线适配 (开源 mac80211 / HE80 / 防掉线)
-		# ======================================================================
-		for dev in \$(uci show wireless | grep '=wifi-device' | cut -d'.' -f2 | cut -d'=' -f1); do
-			uci set wireless.\${dev}.disabled='${CUSTOM_WIFI_ENABLE}'
-			uci set wireless.\${dev}.country='CN'
-
-			band=\$(uci -q get wireless.\${dev}.band || echo "")
-			htmode=\$(uci -q get wireless.\${dev}.htmode || echo "")
-			channel=\$(uci -q get wireless.\${dev}.channel || echo "")
-
-			if [ "\$band" = "5g" ] || [ "\$band" = "6g" ] || [ "\$channel" -gt 14 ] 2>/dev/null || echo "\$htmode" | grep -q -E 'VHT|HE80|HE160'; then
-				uci set wireless.\${dev}.channel='149'
+		if [ "\$is_5g" -eq 1 ]; then
+			# 5G 频段：锁定纯净高频 149 信道，根据驱动支持设定频宽 (Wi-Fi 6 设 HE80, 其余/K2P 设 VHT80)
+			uci set wireless.\${dev}.channel='149'
+			if echo "\$htmode" | grep -q -E 'HE'; then
 				uci set wireless.\${dev}.htmode='HE80'
-			fi
-		done
-
-		for iface in \$(uci show wireless | grep '=wifi-iface' | cut -d'.' -f2 | cut -d'=' -f1); do
-			uci set wireless.\${iface}.disabled='0'
-			uci set wireless.\${iface}.disassoc_low_ack='0'
-			uci set wireless.\${iface}.skip_inactivity_poll='1'
-			uci set wireless.\${iface}.max_inactivity='600'
-
-			dev=\$(uci -q get wireless.\${iface}.device || echo "")
-			band=\$(uci -q get wireless.\${dev}.band || echo "")
-			channel=\$(uci -q get wireless.\${dev}.channel || echo "")
-			htmode=\$(uci -q get wireless.\${dev}.htmode || echo "")
-
-			is_5g=0
-			if [ "\$band" = "5g" ] || [ "\$band" = "6g" ] || [ "\$channel" -gt 14 ] 2>/dev/null || echo "\$htmode" | grep -q -E 'VHT|HE80|HE160'; then
-				is_5g=1
-			fi
-
-			if [ "\$is_5g" -eq 1 ]; then
-				uci set wireless.\${iface}.ssid='${CUSTOM_WIFI_SSID}_5G'
 			else
-				uci set wireless.\${iface}.ssid='${CUSTOM_WIFI_SSID}'
+				uci set wireless.\${dev}.htmode='VHT80'
 			fi
+		else
+			# 2.4G 频段：恢复标准 20MHz 频宽与信道，确保 2.4G 正常拉起
+			if [ "\${channel:-0}" -gt 14 ] 2>/dev/null; then
+				uci set wireless.\${dev}.channel='1'
+			fi
+			if echo "\$htmode" | grep -q -E 'VHT|HE80|HE160'; then
+				uci set wireless.\${dev}.htmode='HT20'
+			fi
+		fi
+	done
 
-			if [ -n "${CUSTOM_WIFI_KEY}" ]; then
-				uci set wireless.\${iface}.encryption='${CUSTOM_WIFI_ENCRYPTION:-psk2}'
-				uci set wireless.\${iface}.key='${CUSTOM_WIFI_KEY}'
-			else
-				uci set wireless.\${iface}.encryption='none'
-				uci -q delete wireless.\${iface}.key
-			fi
-		done
-	fi
+	# 2. 遍历无线接口 (wifi-iface)：精准设置 SSID 与加密，杜绝虚拟接口干扰
+	for iface in \$(uci show wireless | grep '=wifi-iface' | cut -d'.' -f2 | cut -d'=' -f1); do
+		dev=\$(uci -q get wireless.\${iface}.device || echo "")
+		band=\$(uci -q get wireless.\${dev}.band || echo "")
+		htmode=\$(uci -q get wireless.\${dev}.htmode || echo "")
+		channel=\$(uci -q get wireless.\${dev}.channel || echo "0")
+		if_name=\$(uci -q get wireless.\${iface}.ifname || echo "")
+
+		# 过滤 MTK 闭源历史遗留的 wds/apcli 内部桥接虚拟接口
+		if echo "\$if_name" | grep -q -E 'wds|apcli'; then
+			uci -q delete wireless.\${iface}.ssid
+			continue
+		fi
+
+		uci set wireless.\${iface}.disabled='0'
+
+		is_5g=0
+		if [ "\$band" = "5g" ] || [ "\$band" = "6g" ] || [ "\${channel:-0}" -gt 14 ] 2>/dev/null || echo "\$htmode" | grep -q -E 'VHT|HE80|HE160'; then
+			is_5g=1
+		fi
+
+		if [ "\$is_5g" -eq 1 ]; then
+			uci set wireless.\${iface}.ssid='${CUSTOM_WIFI_SSID}_5G'
+		else
+			uci set wireless.\${iface}.ssid='${CUSTOM_WIFI_SSID}'
+		fi
+
+		if [ -n "${CUSTOM_WIFI_KEY}" ]; then
+			uci set wireless.\${iface}.encryption='${CUSTOM_WIFI_ENCRYPTION:-psk2}'
+			uci set wireless.\${iface}.key='${CUSTOM_WIFI_KEY}'
+		else
+			uci set wireless.\${iface}.encryption='none'
+			uci -q delete wireless.\${iface}.key
+		fi
+	done
 	uci commit wireless
 	/sbin/wifi reload 2>/dev/null || true
 fi
