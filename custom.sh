@@ -19,6 +19,7 @@
 set -euo pipefail
 
 TARGET_DIR="${1:-lede}"
+TARGET_SEED="${2:-${TARGET_SEED:-jdcloud_re-ss-01}}"
 CUSTOM_LAN_IP="${CUSTOM_LAN_IP:-10.0.0.1}"
 CUSTOM_NETMASK="${CUSTOM_NETMASK:-255.255.255.0}"
 CUSTOM_WIFI_SSID="${CUSTOM_WIFI_SSID:-LEDE-WIFI}"
@@ -146,60 +147,104 @@ uci -q batch <<-UCI_SYS
 UCI_SYS
 uci commit system
 
-# 5. 默认开启并配置 WiFi（5G 迁移至纯净高频 149 信道，解决 5G 断连与撞包）
+# 5. 默认开启并配置 WiFi（区分设备架构与驱动模型）
 if [ ! -f /etc/config/wireless ]; then
 	/sbin/wifi config 2>/dev/null || true
 fi
 
 if [ -f /etc/config/wireless ]; then
-	# 开启全部无线硬件 (disabled=0 即开启无线)
-	for dev in \$(uci show wireless | grep '=wifi-device' | cut -d'.' -f2 | cut -d'=' -f1); do
-		uci set wireless.\${dev}.disabled='${CUSTOM_WIFI_ENABLE}'
-		uci set wireless.\${dev}.country='CN'
+	if [ "${TARGET_SEED}" = "phicomm_k2p" ] || grep -q -i "k2p" /tmp/sysinfo/model 2>/dev/null; then
+		# ======================================================================
+		# 斐讯 K2P 专属无线适配 (MTK 闭源驱动 mt7615d_dbdc / ra0 & rax0)
+		# ======================================================================
+		# 1. 开启 2.4G (ra0) 与 5G (rax0) 设备
+		for dev in \$(uci show wireless | grep '=wifi-device' | cut -d'.' -f2 | cut -d'=' -f1); do
+			uci set wireless.\${dev}.disabled='${CUSTOM_WIFI_ENABLE}'
+			uci set wireless.\${dev}.country='CN'
+			channel=\$(uci -q get wireless.\${dev}.channel || echo "")
+			# 5G 锁定纯净 149 信道与 VHT80 频宽
+			if [ "\$channel" -gt 14 ] 2>/dev/null || [ "\$dev" = "radio0" ]; then
+				uci -q set wireless.\${dev}.channel='149'
+				uci -q set wireless.\${dev}.htmode='VHT80'
+			fi
+		done
 
-		band=\$(uci -q get wireless.\${dev}.band || echo "")
-		htmode=\$(uci -q get wireless.\${dev}.htmode || echo "")
-		channel=\$(uci -q get wireless.\${dev}.channel || echo "")
+		# 2. 严禁给虚拟接口 (wds*/apcli*) 绑定 SSID，只配置实体 AP 接口
+		for iface in \$(uci show wireless | grep '=wifi-iface' | cut -d'.' -f2 | cut -d'=' -f1); do
+			dev=\$(uci -q get wireless.\${iface}.device || echo "")
+			channel=\$(uci -q get wireless.\${dev}.channel || echo "")
+			if_name=\$(uci -q get wireless.\${iface}.ifname || echo "")
 
-		# 若为 5G 射频硬件，强制锁定高频纯净 149 信道并设置 80MHz 频宽
-		if [ "\$band" = "5g" ] || [ "\$band" = "6g" ] || [ "\$channel" -gt 14 ] 2>/dev/null || echo "\$htmode" | grep -q -E 'VHT|HE80|HE160'; then
-			uci set wireless.\${dev}.channel='149'
-			uci set wireless.\${dev}.htmode='HE80'
-		fi
-	done
+			# 跳过 wds 和 apcli 内部桥接虚拟接口，避免 iwinfo 空指针崩溃 rpcd
+			if echo "\$if_name" | grep -q -E 'wds|apcli'; then
+				uci -q delete wireless.\${iface}.ssid
+				continue
+			fi
 
-	# 遍历无线接口：精准绑定 SSID、设置 psk2 密码、注入防休眠踢人参数
-	for iface in \$(uci show wireless | grep '=wifi-iface' | cut -d'.' -f2 | cut -d'=' -f1); do
-		uci set wireless.\${iface}.disabled='0'
-		# 防手机/移动设备锁屏待机断线调优
-		uci set wireless.\${iface}.disassoc_low_ack='0'
-		uci set wireless.\${iface}.skip_inactivity_poll='1'
-		uci set wireless.\${iface}.max_inactivity='600'
+			uci set wireless.\${iface}.disabled='0'
+			if [ "\$channel" -gt 14 ] 2>/dev/null || [ "\$dev" = "radio0" ]; then
+				uci set wireless.\${iface}.ssid='${CUSTOM_WIFI_SSID}_5G'
+			else
+				uci set wireless.\${iface}.ssid='${CUSTOM_WIFI_SSID}'
+			fi
 
-		dev=\$(uci -q get wireless.\${iface}.device || echo "")
-		band=\$(uci -q get wireless.\${dev}.band || echo "")
-		channel=\$(uci -q get wireless.\${dev}.channel || echo "")
-		htmode=\$(uci -q get wireless.\${dev}.htmode || echo "")
+			if [ -n "${CUSTOM_WIFI_KEY}" ]; then
+				uci set wireless.\${iface}.encryption='${CUSTOM_WIFI_ENCRYPTION:-psk2}'
+				uci set wireless.\${iface}.key='${CUSTOM_WIFI_KEY}'
+			else
+				uci set wireless.\${iface}.encryption='none'
+				uci -q delete wireless.\${iface}.key
+			fi
+		done
+	else
+		# ======================================================================
+		# 通用 / 京东云 Wi-Fi 6 专属无线适配 (开源 mac80211 / HE80 / 防掉线)
+		# ======================================================================
+		for dev in \$(uci show wireless | grep '=wifi-device' | cut -d'.' -f2 | cut -d'=' -f1); do
+			uci set wireless.\${dev}.disabled='${CUSTOM_WIFI_ENABLE}'
+			uci set wireless.\${dev}.country='CN'
 
-		is_5g=0
-		if [ "\$band" = "5g" ] || [ "\$band" = "6g" ] || [ "\$channel" -gt 14 ] 2>/dev/null || echo "\$htmode" | grep -q -E 'VHT|HE80|HE160'; then
-			is_5g=1
-		fi
+			band=\$(uci -q get wireless.\${dev}.band || echo "")
+			htmode=\$(uci -q get wireless.\${dev}.htmode || echo "")
+			channel=\$(uci -q get wireless.\${dev}.channel || echo "")
 
-		if [ "\$is_5g" -eq 1 ]; then
-			uci set wireless.\${iface}.ssid='${CUSTOM_WIFI_SSID}_5G'
-		else
-			uci set wireless.\${iface}.ssid='${CUSTOM_WIFI_SSID}'
-		fi
+			if [ "\$band" = "5g" ] || [ "\$band" = "6g" ] || [ "\$channel" -gt 14 ] 2>/dev/null || echo "\$htmode" | grep -q -E 'VHT|HE80|HE160'; then
+				uci set wireless.\${dev}.channel='149'
+				uci set wireless.\${dev}.htmode='HE80'
+			fi
+		done
 
-		if [ -n "${CUSTOM_WIFI_KEY}" ]; then
-			uci set wireless.\${iface}.encryption='${CUSTOM_WIFI_ENCRYPTION:-psk2}'
-			uci set wireless.\${iface}.key='${CUSTOM_WIFI_KEY}'
-		else
-			uci set wireless.\${iface}.encryption='none'
-			uci -q delete wireless.\${iface}.key
-		fi
-	done
+		for iface in \$(uci show wireless | grep '=wifi-iface' | cut -d'.' -f2 | cut -d'=' -f1); do
+			uci set wireless.\${iface}.disabled='0'
+			uci set wireless.\${iface}.disassoc_low_ack='0'
+			uci set wireless.\${iface}.skip_inactivity_poll='1'
+			uci set wireless.\${iface}.max_inactivity='600'
+
+			dev=\$(uci -q get wireless.\${iface}.device || echo "")
+			band=\$(uci -q get wireless.\${dev}.band || echo "")
+			channel=\$(uci -q get wireless.\${dev}.channel || echo "")
+			htmode=\$(uci -q get wireless.\${dev}.htmode || echo "")
+
+			is_5g=0
+			if [ "\$band" = "5g" ] || [ "\$band" = "6g" ] || [ "\$channel" -gt 14 ] 2>/dev/null || echo "\$htmode" | grep -q -E 'VHT|HE80|HE160'; then
+				is_5g=1
+			fi
+
+			if [ "\$is_5g" -eq 1 ]; then
+				uci set wireless.\${iface}.ssid='${CUSTOM_WIFI_SSID}_5G'
+			else
+				uci set wireless.\${iface}.ssid='${CUSTOM_WIFI_SSID}'
+			fi
+
+			if [ -n "${CUSTOM_WIFI_KEY}" ]; then
+				uci set wireless.\${iface}.encryption='${CUSTOM_WIFI_ENCRYPTION:-psk2}'
+				uci set wireless.\${iface}.key='${CUSTOM_WIFI_KEY}'
+			else
+				uci set wireless.\${iface}.encryption='none'
+				uci -q delete wireless.\${iface}.key
+			fi
+		done
+	fi
 	uci commit wireless
 	/sbin/wifi reload 2>/dev/null || true
 fi

@@ -73,6 +73,7 @@ jobs:
 
       - name: "4. 运行 custom.sh 注入自定义配置 (Run custom.sh: Feeds / IP / WiFi / WAN)"
         env:
+          TARGET_SEED: ${{ github.event.inputs.target_seed || 'jdcloud_re-ss-01' }}
           CUSTOM_LAN_IP: ${{ github.event.inputs.custom_ip || '10.0.0.1' }}
           CUSTOM_WIFI_SSID: ${{ github.event.inputs.custom_ssid || 'LEDE-WIFI' }}
           CUSTOM_WIFI_KEY: ${{ github.event.inputs.custom_wifi_key == null && '1234567890' || github.event.inputs.custom_wifi_key }}
@@ -81,7 +82,7 @@ jobs:
           PPPOE_PASS: ${{ github.event.inputs.pppoe_pass || '' }}
         run: |
           chmod +x "$GITHUB_WORKSPACE/$CUSTOM_SCRIPT"
-          "$GITHUB_WORKSPACE/$CUSTOM_SCRIPT" "$LEDE_PATH"
+          "$GITHUB_WORKSPACE/$CUSTOM_SCRIPT" "$LEDE_PATH" "$TARGET_SEED"
 
       - name: 5. 更新与安装 Feeds (Update & Install Feeds)
         run: |
