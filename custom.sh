@@ -78,10 +78,19 @@ else
 fi
 
 # ------------------------------------------------------------------------------
-# 2. 编译阶段拦截与清理 CoreMark 定时任务触发器
+# 2. 针对斐讯 K2P 切换为标准开源无线驱动 (kmod-mt7615e，彻底解决 iwinfo 崩溃 rpcd)
+# ------------------------------------------------------------------------------
+MT7621_MK="${TARGET_DIR}/target/linux/ramips/image/mt7621.mk"
+if [ -f "${MT7621_MK}" ]; then
+    echo "[*] [2/4] 检查并配置 K2P 无线驱动为官方开源 mt7615e..."
+    sed -i -E 's/DEVICE_PACKAGES := .*kmod-mt7615d_dbdc.*/DEVICE_PACKAGES := kmod-mt7615e kmod-mt7615-firmware -wpad-openssl wpad-basic-openssl -uboot-envtools/' "${MT7621_MK}"
+fi
+
+# ------------------------------------------------------------------------------
+# 3. 编译阶段拦截与清理 CoreMark 定时任务触发器
 # ------------------------------------------------------------------------------
 echo ""
-echo "[*] [2/3] 正在清理 CoreMark 定时跑分构建脚本..."
+echo "[*] [3/4] 正在清理 CoreMark 定时跑分构建脚本..."
 # 清理 feeds/packages 中的 coremark 自启动与定时注入代码（如果已拉取 feeds）
 if [ -d "${TARGET_DIR}/feeds/packages/utils/coremark" ]; then
     find "${TARGET_DIR}/feeds/packages/utils/coremark" -type f -exec sed -i '/crontab/d' {} + 2>/dev/null || true
@@ -92,7 +101,7 @@ fi
 # 3. 注入开机自配置脚本 (files/etc/uci-defaults/99-custom-settings)
 # ------------------------------------------------------------------------------
 echo ""
-echo "[*] [3/3] 正在注入全套开机自启动优化配置..."
+echo "[*] [4/4] 正在注入全套开机自启动优化配置..."
 OVERLAY_DIR="${TARGET_DIR}/files/etc/uci-defaults"
 mkdir -p "${OVERLAY_DIR}"
 
