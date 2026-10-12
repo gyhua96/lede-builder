@@ -31,6 +31,14 @@ on:
         description: 'PPPoE 宽带密码 (wan_proto 选 pppoe 时生效)'
         required: false
         default: ''
+      runner_type:
+        description: '运行平台选择: ubuntu-latest (GitHub公共Runner) 或 self-hosted (自建Runner)'
+        required: true
+        type: choice
+        default: 'ubuntu-latest'
+        options:
+          - 'ubuntu-latest'
+          - 'self-hosted'
 
 env:
   REPO_URL: https://github.com/coolsnowwolf/lede.git
@@ -42,7 +50,7 @@ env:
 jobs:
   build:
     name: Build Firmware
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event.inputs.runner_type || 'ubuntu-latest' }}
 
     steps:
       - name: 1. 检出当前项目代码 (Checkout Repository)
@@ -64,7 +72,10 @@ jobs:
             qemu-utils rsync scons squashfs-tools subversion swig texinfo uglifyjs upx-ucl unzip \
             vim wget xmlto xxd xz-utils zlib1g-dev sudo tzdata
           sudo timedatectl set-timezone "${TZ}"
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          # 仅在 GitHub 官方托管 Runner (ubuntu-latest) 上清理临时开发工具以腾出磁盘空间
+          if [ "${{ github.event.inputs.runner_type || 'ubuntu-latest' }}" = "ubuntu-latest" ]; then
+            sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL || true
+          fi
 
       - name: 3. 克隆 LEDE 官方源码 (Clone Source Code)
         run: |
