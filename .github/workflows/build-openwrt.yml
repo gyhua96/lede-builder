@@ -71,7 +71,7 @@ jobs:
             ninja-build p7zip p7zip-full patch pkgconf python3 python3-pyelftools python3-setuptools \
             qemu-utils rsync scons squashfs-tools subversion swig texinfo uglifyjs upx-ucl unzip \
             vim wget xmlto xxd xz-utils zlib1g-dev sudo tzdata
-          sudo timedatectl set-timezone "${TZ}"
+          # sudo timedatectl set-timezone "${TZ}"
           # 仅在 GitHub 官方托管 Runner (ubuntu-latest) 上清理临时开发工具以腾出磁盘空间
           if [ "${{ github.event.inputs.runner_type || 'ubuntu-latest' }}" = "ubuntu-latest" ]; then
             sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL || true
