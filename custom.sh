@@ -78,12 +78,12 @@ else
 fi
 
 # ------------------------------------------------------------------------------
-# 2. 针对斐讯 K2P 切换为标准开源无线驱动 (kmod-mt7615e，彻底解决 iwinfo 崩溃 rpcd)
+# 2. 针对斐讯 K2P 切换为标准开源无线驱动并集成完整漫游协议支持 (802.11k/v/r)
 # ------------------------------------------------------------------------------
 MT7621_MK="${TARGET_DIR}/target/linux/ramips/image/mt7621.mk"
 if [ -f "${MT7621_MK}" ]; then
-    echo "[*] [2/4] 检查并配置 K2P 无线驱动为官方开源 mt7615e..."
-    sed -i -E 's/DEVICE_PACKAGES := .*kmod-mt7615d_dbdc.*/DEVICE_PACKAGES := kmod-mt7615e kmod-mt7615-firmware -wpad-openssl wpad-basic-openssl -uboot-envtools/' "${MT7621_MK}"
+    echo "[*] [2/4] 检查并配置 K2P 无线驱动为官方开源 mt7615e 及 wpad-mesh-openssl (支持 802.11k/v/r)..."
+    sed -i -E 's/DEVICE_PACKAGES := .*kmod-mt7615d_dbdc.*/DEVICE_PACKAGES := kmod-mt7615e kmod-mt7615-firmware -wpad-openssl -wpad-basic-openssl wpad-mesh-openssl -uboot-envtools/' "${MT7621_MK}"
 fi
 
 # 针对京东云 AX1800 Pro (IPQ60xx) 精准适配：改用 FitImageLzma 强力压缩内核，严格对齐 0:HLOS 6MB 物理红线
@@ -237,6 +237,13 @@ if [ -f /etc/config/wireless ]; then
 			uci set wireless.\${iface}.encryption='none'
 			uci -q delete wireless.\${iface}.key
 		fi
+
+		# 启用 802.11k/v 无线漫游扩展协议 (支持 BSS Transition 引导终端快速迁移)
+		uci set wireless.\${iface}.ieee80211k='1'
+		uci set wireless.\${iface}.rrm_neighbor_report='1'
+		uci set wireless.\${iface}.rrm_beacon_report='1'
+		uci set wireless.\${iface}.bss_transition='1'
+		uci set wireless.\${iface}.wnm_sleep_mode='1'
 	done
 	uci commit wireless
 	/sbin/wifi reload 2>/dev/null || true
