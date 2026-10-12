@@ -86,11 +86,12 @@ if [ -f "${MT7621_MK}" ]; then
     sed -i -E 's/DEVICE_PACKAGES := .*kmod-mt7615d_dbdc.*/DEVICE_PACKAGES := kmod-mt7615e kmod-mt7615-firmware -wpad-openssl wpad-basic-openssl -uboot-envtools/' "${MT7621_MK}"
 fi
 
-# 针对京东云 AX1800 Pro (IPQ60xx) 放宽内核打包限制 (从 6M 放宽至 12M，完全容纳 6.12 内核且绝不破坏 factory 镜像结构)
+# 针对京东云 AX1800 Pro (IPQ60xx) 精准适配：改用 FitImageLzma 强力压缩内核，严格对齐 0:HLOS 6MB 物理红线
 IPQ60XX_MK="${TARGET_DIR}/target/linux/qualcommax/image/ipq60xx.mk"
 if [ -f "${IPQ60XX_MK}" ]; then
-    echo "[*] [2/4] 针对京东云适度放宽 KERNEL_SIZE 限制至 12288k (12MB)..."
-    sed -i '/define Device\/jdcloud_re-ss-01/,/endef/ s/KERNEL_SIZE := 6144k/KERNEL_SIZE := 12288k/' "${IPQ60XX_MK}"
+    echo "[*] [2/4] 针对京东云采用 FitImageLzma 压缩，确保内核体积严格小于 6MB (0:HLOS 物理上限)..."
+    sed -i '/define Device\/jdcloud_re-ss-01/,/endef/ s/\$(call Device\/FitImage)/\$(call Device\/FitImageLzma)/' "${IPQ60XX_MK}"
+    sed -i '/define Device\/jdcloud_re-ss-01/,/endef/ s/KERNEL_SIZE := 12288k/KERNEL_SIZE := 6144k/' "${IPQ60XX_MK}"
 fi
 
 # ------------------------------------------------------------------------------
