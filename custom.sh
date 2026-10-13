@@ -54,11 +54,11 @@ echo "系统主机名:  ${CUSTOM_HOSTNAME}"
 echo "=========================================================="
 
 # ------------------------------------------------------------------------------
-# 1. 配置 feeds.conf.default（替换源与移除 helloworld）
+# 1. 配置 feeds.conf.default（置顶优先注入 passwall 官方源，剔除 helloworld）
 # ------------------------------------------------------------------------------
 FEEDS_CONF="${TARGET_DIR}/feeds.conf.default"
 if [ -f "${FEEDS_CONF}" ]; then
-    echo "[*] [1/3] 正在配置 ${FEEDS_CONF} ..."
+    echo "[*] [1/3] 正在优化配置 ${FEEDS_CONF} ..."
     rm -f "${TARGET_DIR}/feeds.conf"
     
     # 移除 helloworld
@@ -67,11 +67,11 @@ if [ -f "${FEEDS_CONF}" ]; then
     # 清理已存在的同名源避免重复定义
     sed -i -E '/^[[:space:]]*src-[a-z]+[[:space:]]+(passwall_packages|passwall2)([[:space:]]|$)/d' "${FEEDS_CONF}"
     
-    # 精准追加两个 passwall 官方源，不添加其他任何额外 feed
-    echo "src-git passwall_packages https://github.com/Openwrt-Passwall/openwrt-passwall-packages.git;main" >> "${FEEDS_CONF}"
-    echo "src-git passwall2 https://github.com/Openwrt-Passwall/openwrt-passwall2.git" >> "${FEEDS_CONF}"
+    # 在 feeds.conf.default 顶部第一行和第二行插入 passwall 源，确保最高解析优先级
+    sed -i '1i src-git passwall2 https://github.com/Openwrt-Passwall/openwrt-passwall2.git' "${FEEDS_CONF}"
+    sed -i '1i src-git passwall_packages https://github.com/Openwrt-Passwall/openwrt-passwall-packages.git;main' "${FEEDS_CONF}"
     
-    echo "[✓] feeds.conf.default 当前生效源清单："
+    echo "[✓] feeds.conf.default 当前生效源清单 (已确保 passwall 最高优先级)："
     grep -E '^[[:space:]]*src-[a-z]+' "${FEEDS_CONF}"
 else
     echo "[-] 警告: 未找到 ${FEEDS_CONF}，跳过 Feeds 注入。"
