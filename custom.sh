@@ -82,8 +82,15 @@ fi
 # ------------------------------------------------------------------------------
 MT7621_MK="${TARGET_DIR}/target/linux/ramips/image/mt7621.mk"
 if [ -f "${MT7621_MK}" ]; then
-    echo "[*] [2/4] 检查并配置 K2P 无线驱动为官方开源 mt7615e 及 wpad-mesh-openssl (支持 802.11k/v/r)..."
-    sed -i -E 's/DEVICE_PACKAGES := .*kmod-mt7615d_dbdc.*/DEVICE_PACKAGES := kmod-mt7615e kmod-mt7615-firmware -wpad-openssl -wpad-basic-openssl wpad-mesh-openssl -uboot-envtools/' "${MT7621_MK}"
+    echo "[*] [2/4] 检查并配置 K2P 无线驱动为官方开源 mt7615e 及 wpad-basic-openssl (支持 802.11k/v/r)..."
+    sed -i -E 's/DEVICE_PACKAGES := .*kmod-mt7615d_dbdc.*/DEVICE_PACKAGES := kmod-mt7615e kmod-mt7615-firmware -wpad-openssl -wpad-mesh-openssl wpad-basic-openssl -uboot-envtools/' "${MT7621_MK}"
+fi
+
+# 确保 hostapd-basic 编译时启用 CONFIG_WNM=y (802.11v BSS Transition 漫游支持)
+HOSTAPD_BASIC_CONF="${TARGET_DIR}/package/network/services/hostapd/files/hostapd-basic.config"
+if [ -f "${HOSTAPD_BASIC_CONF}" ]; then
+    echo "[*] [2/4] 启用 hostapd-basic 的 CONFIG_WNM=y 支持 802.11v 协议..."
+    sed -i 's/#CONFIG_WNM=y/CONFIG_WNM=y/' "${HOSTAPD_BASIC_CONF}"
 fi
 
 # 针对京东云 AX1800 Pro (IPQ60xx) 精准适配：改用 FitImageLzma 强力压缩内核，严格对齐 0:HLOS 6MB 物理红线
