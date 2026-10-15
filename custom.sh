@@ -251,6 +251,12 @@ if [ -f /etc/config/wireless ]; then
 		uci set wireless.\${iface}.rrm_beacon_report='1'
 		uci set wireless.\${iface}.bss_transition='1'
 		uci set wireless.\${iface}.wnm_sleep_mode='1'
+
+		# 启用 802.11r 快速漫游 (Fast BSS Transition - WPA2-PSK FT)
+		uci set wireless.\${iface}.ieee80211r='1'
+		uci set wireless.\${iface}.ft_over_ds='1'
+		uci set wireless.\${iface}.ft_psk_generate_local='1'
+		uci set wireless.\${iface}.mobility_domain='e4a1'
 	done
 	uci commit wireless
 	/sbin/wifi reload 2>/dev/null || true
@@ -271,22 +277,32 @@ if [ -f /etc/banner ]; then
 	sed -i -E 's/OpenWrt[[:space:]]+[0-9.]+/LEDE R26.05.20/g' /etc/banner
 fi
 
-# 8. 系统网络内核参数调优 (扩容半连接队列与网络队列，杜绝 DNS 并发丢包)
+# 8. 系统网络内核参数调优 (扩容半连接队列与网络队列，杜绝 DNS 并发丢包；调优 Swap 保护 Flash)
 cat << 'SYSCTL_EOF' > /etc/sysctl.d/99-network-stability.conf
 net.ipv4.tcp_max_syn_backlog=2048
 net.core.netdev_max_backlog=2048
+# Swap 调优：仅在内存极度吃紧(低于2%)时才使用 Swap，保护 eMMC 寿命
+vm.swappiness=1
+vm.vfs_cache_pressure=50
 SYSCTL_EOF
 sysctl -p /etc/sysctl.d/99-network-stability.conf 2>/dev/null || true
 
-# 9. 自动创建并激活 512MB Swap 虚拟内存 (根治 Passwall/Xray 内存击穿 OOM 被强杀)
+# 9. 智能创建并激活 512MB Swap 虚拟内存 (优先 fallocate 零写入损耗分配，防 OOM)
 if [ ! -f /overlay/swapfile ] && [ -d /overlay ]; then
 	avail_kb=\$(df -k /overlay | awk 'NR==2 {print \$4}')
 	if [ -n "\$avail_kb" ] && [ "\$avail_kb" -gt 819200 ]; then
-		dd if=/dev/zero of=/overlay/swapfile bs=1M count=512 2>/dev/null
+		if ! fallocate -l 512M /overlay/swapfile 2>/dev/null; then
+			dd if=/dev/zero of=/overlay/swapfile bs=1M count=512 2>/dev/null
+		fi
 		chmod 600 /overlay/swapfile
 		mkswap /overlay/swapfile 2>/dev/null
 		swapon /overlay/swapfile 2>/dev/null || true
 	fi
+fi
+
+# 10. 默认 Shell 切换为 bash (如果存在)
+if [ -x /bin/bash ]; then
+	sed -i 's|/bin/ash|/bin/bash|' /etc/passwd 2>/dev/null || true
 fi
 
 # 将 Swap 自启持久化注入 /etc/rc.local
