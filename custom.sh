@@ -300,16 +300,6 @@ if [ ! -f /overlay/swapfile ] && [ -d /overlay ]; then
 	fi
 fi
 
-# 10. 默认 Shell 切换为 bash (确保在 /etc/shells 注册，防止 dropbear 判定 invalid shell 拒绝 SSH)
-BASH_PATH=\$(which bash 2>/dev/null || echo "")
-if [ -n "\$BASH_PATH" ] && [ -x "\$BASH_PATH" ]; then
-	touch /etc/shells
-	grep -q "/bin/bash" /etc/shells || echo "/bin/bash" >> /etc/shells
-	grep -q "/usr/bin/bash" /etc/shells || echo "/usr/bin/bash" >> /etc/shells
-	[ -x /bin/bash ] || ln -sf "\$BASH_PATH" /bin/bash
-	sed -i "s|/bin/ash|\$BASH_PATH|" /etc/passwd 2>/dev/null || true
-fi
-
 # 将 Swap 自启持久化注入 /etc/rc.local
 if [ -f /etc/rc.local ] && ! grep -q "swapfile" /etc/rc.local; then
 	sed -i '/exit 0/i [ -f /overlay/swapfile ] && swapon /overlay/swapfile 2>/dev/null' /etc/rc.local
