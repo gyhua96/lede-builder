@@ -101,16 +101,6 @@ if [ -f "${IPQ60XX_MK}" ]; then
     sed -i '/define Device\/jdcloud_re-ss-01/,/endef/ s/KERNEL_SIZE := 12288k/KERNEL_SIZE := 6144k/' "${IPQ60XX_MK}"
 fi
 
-# 切换为 256M 精简 DTS 配置 (ipq6018-256m.dtsi)
-for dts_file in \
-    "${TARGET_DIR}/target/linux/qualcommax/dts/ipq6000-re-ss-01.dts" \
-    "${TARGET_DIR}/target/linux/qualcommax/files/arch/arm64/boot/dts/qcom/ipq6000-re-ss-01.dts"; do
-    if [ -f "${dts_file}" ]; then
-        echo "[*] [2/4] 针对京东云切换为 256M 精简 DTS (${dts_file})..."
-        sed -i -E 's/#include "ipq6018(-512m)?\.dtsi"/#include "ipq6018-256m.dtsi"/' "${dts_file}"
-    fi
-done
-
 # ------------------------------------------------------------------------------
 # 3. 编译阶段拦截与清理 CoreMark 定时任务触发器
 # ------------------------------------------------------------------------------
