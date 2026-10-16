@@ -129,18 +129,7 @@ jobs:
           find dl -size -1024c -exec ls -l {} \;
           find dl -size -1024c -exec rm -f {} \;
 
-      - name: 8. 配置并恢复构建缓存 (Setup Build Cache)
-        if: ${{ github.event.inputs.runner_type != 'self-hosted' }}
-        uses: actions/cache@v4
-        with:
-          path: |
-            ${{ env.LEDE_PATH }}/staging_dir/host
-            ${{ env.LEDE_PATH }}/staging_dir/toolchain-*
-          key: ${{ runner.os }}-toolchain-${{ hashFiles(env.CONFIG_FILE) }}
-          restore-keys: |
-            ${{ runner.os }}-toolchain-
-
-      - name: 9. 编译固件 (Compile Firmware)
+      - name: 8. 编译固件 (Compile Firmware)
         id: compile
         run: |
           cd $LEDE_PATH
@@ -155,7 +144,7 @@ jobs:
           fi
           echo "status=success" >> $GITHUB_OUTPUT
 
-      - name: 10. 收集与整理固件产物 (Collect Artifacts)
+      - name: 9. 收集与整理固件产物 (Collect Artifacts)
         if: steps.compile.outputs.status == 'success'
         run: |
           cd $LEDE_PATH
@@ -164,7 +153,7 @@ jobs:
           echo "RELEASE_PATH=$GITHUB_WORKSPACE/release" >> $GITHUB_ENV
           echo "BUILD_DATE=$(date +'%Y%m%d%H%M')" >> $GITHUB_ENV
 
-      - name: 11. 上传固件至 GitHub Artifacts (Upload Artifacts)
+      - name: 10. 上传固件至 GitHub Artifacts (Upload Artifacts)
         if: steps.compile.outputs.status == 'success'
         uses: actions/upload-artifact@v4
         with:
