@@ -267,6 +267,7 @@ if [ -f /etc/config/passwall2 ]; then
 	uci -q batch <<-UCI_PW
 		set passwall2.rulenode.default_node='_direct'
 		set passwall2.rulenode.ProxyGame='_direct'
+		set passwall2.@global[0].localhost_proxy='0'
 		delete passwall2.@global[0].tcp_no_redir_ports 2>/dev/null || true
 	UCI_PW
 	uci commit passwall2
@@ -277,17 +278,32 @@ if [ -f /etc/banner ]; then
 	sed -i -E 's/OpenWrt[[:space:]]+[0-9.]+/LEDE R26.05.20/g' /etc/banner
 fi
 
-# 8. 系统网络内核参数调优 (扩容半连接队列与网络队列，杜绝 DNS 并发丢包；调优 Swap 保护 Flash)
+# 8. 系统日志与内核网络参数持久化与调优 (启用 Flash Overlay 持久化滚动日志)
+mkdir -p /etc/log
+uci -q batch <<-UCI_LOG
+	set system.@system[0].log_file='/etc/log/system.log'
+	set system.@system[0].log_size='2048'
+UCI_LOG
+uci commit system
+
+# 9. 缩减 nlbwmon 内存 Netlink 缓冲区 (默认 16MB 改为 2MB，减少内核固定锁定内存)
+if [ -f /etc/config/nlbwmon ]; then
+	uci -q set nlbwmon.@nlbwmon[0].netlink_buffer_size='2097152'
+	uci commit nlbwmon
+fi
+
+# 10. 系统网络内核参数调优 (扩容半连接队列与网络队列，杜绝 DNS 并发丢包；调优 Swap 保护 Flash，激进回收 inode/dentry 缓存)
 cat << 'SYSCTL_EOF' > /etc/sysctl.d/99-network-stability.conf
 net.ipv4.tcp_max_syn_backlog=2048
 net.core.netdev_max_backlog=2048
-# Swap 调优：仅在内存极度吃紧(低于2%)时才使用 Swap，保护 eMMC 寿命
+# 仅在内存极度吃紧时才使用 Swap
 vm.swappiness=1
-vm.vfs_cache_pressure=50
+# 激进回收无用的 inode 与 dentry 文件系统缓存，防止 PageCache 占死内存
+vm.vfs_cache_pressure=150
 SYSCTL_EOF
 sysctl -p /etc/sysctl.d/99-network-stability.conf 2>/dev/null || true
 
-# 9. 智能创建并激活 512MB Swap 虚拟内存 (优先 fallocate 零写入损耗分配，防 OOM)
+# 11. 智能创建并激活 512MB Swap 虚拟内存 (优先 fallocate 零写入损耗分配，防 OOM)
 if [ ! -f /overlay/swapfile ] && [ -d /overlay ]; then
 	avail_kb=\$(df -k /overlay | awk 'NR==2 {print \$4}')
 	if [ -n "\$avail_kb" ] && [ "\$avail_kb" -gt 819200 ]; then
@@ -305,7 +321,7 @@ if [ -f /etc/rc.local ] && ! grep -q "swapfile" /etc/rc.local; then
 	sed -i '/exit 0/i [ -f /overlay/swapfile ] && swapon /overlay/swapfile 2>/dev/null' /etc/rc.local
 fi
 
-# 10. 彻底清理与阻断 CoreMark 定时跑分任务 (防止每日凌晨跑分吃满 CPU 与内存)
+# 12. 彻底清理与阻断 CoreMark 定时跑分任务 (防止每日凌晨跑分吃满 CPU 与内存)
 sed -i '/coremark/d' /etc/crontabs/root 2>/dev/null || true
 rm -f /etc/coremark.sh /etc/uci-defaults/xxx-coremark 2>/dev/null || true
 
