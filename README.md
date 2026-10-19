@@ -11,9 +11,12 @@
 │   └── workflows/
 │       └── build-openwrt.yml         # GitHub Actions 自动化编译流水线
 ├── config/
-│   ├── jdcloud_re-ss-01.seed.config  # 目标设备精简差异配置 (京东云 RE-SS-01 / IPQ60xx)
-│   └── phicomm_k2p.seed.config       # 目标设备精简差异配置 (斐讯 K2P / MT7621)
-├── custom.sh                         # 自定义配置注入脚本 (Feeds / 默认 IP / 默认 WiFi)
+│   ├── jdcloud_re-ss-01.seed.config  # 京东云 AX1800 Pro (IPQ60xx) 专属差异配置
+│   └── phicomm_k2p.seed.config       # 斐讯 K2P (MT7621) 专属差异配置
+├── custom/
+│   ├── jdcloud_re-ss-01.sh           # 京东云 AX1800 Pro 专属定制脚本 (FitImageLzma / 6MB红线 / Swap / 漫游)
+│   └── phicomm_k2p.sh                # 斐讯 K2P 专属定制脚本 (开源 mt7615e 驱动 / 精简闪存 / 漫游)
+├── custom.sh                         # 通用定制分发脚本入口 (按平台自动路由)
 └── README.md
 ```
 
@@ -73,8 +76,13 @@
 # 1. 克隆 LEDE 源码
 git clone https://github.com/coolsnowwolf/lede.git lede
 
-# 2. 执行自定义脚本 (完成 feeds.conf.default 调整及默认 IP/WiFi 注入)
-./custom.sh lede
+# 2. 执行自定义脚本 (直接调用平台专属脚本，或通过 custom.sh 自动路由)
+# 针对京东云 AX1800 Pro:
+./custom/jdcloud_re-ss-01.sh lede
+# 或针对斐讯 K2P:
+# ./custom/phicomm_k2p.sh lede
+# 或通用分发:
+# ./custom.sh lede jdcloud_re-ss-01
 
 # 3. 安装 feeds 依赖
 cd lede

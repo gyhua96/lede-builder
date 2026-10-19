@@ -43,8 +43,9 @@ on:
 env:
   REPO_URL: https://github.com/coolsnowwolf/lede.git
   REPO_BRANCH: master
+  TARGET_SEED: ${{ github.event.inputs.target_seed || 'jdcloud_re-ss-01' }}
   CONFIG_FILE: config/${{ github.event.inputs.target_seed || 'jdcloud_re-ss-01' }}.seed.config
-  CUSTOM_SCRIPT: custom.sh
+  CUSTOM_SCRIPT: custom/${{ github.event.inputs.target_seed || 'jdcloud_re-ss-01' }}.sh
   TZ: Asia/Shanghai
 
 jobs:
@@ -81,9 +82,8 @@ jobs:
           git clone --depth 1 -b $REPO_BRANCH $REPO_URL lede
           echo "LEDE_PATH=$GITHUB_WORKSPACE/lede" >> $GITHUB_ENV
 
-      - name: "4. 运行 custom.sh 注入自定义配置 (Run custom.sh: Feeds / IP / WiFi / WAN)"
+      - name: "4. 运行平台定制脚本注入配置 (Run Platform Custom Script: Feeds / IP / WiFi / WAN)"
         env:
-          TARGET_SEED: ${{ github.event.inputs.target_seed || 'jdcloud_re-ss-01' }}
           CUSTOM_LAN_IP: ${{ github.event.inputs.custom_ip || '10.0.0.1' }}
           CUSTOM_WIFI_SSID: ${{ github.event.inputs.custom_ssid || 'LEDE-WIFI' }}
           CUSTOM_WIFI_KEY: ${{ github.event.inputs.custom_wifi_key == null && '1234567890' || github.event.inputs.custom_wifi_key }}
@@ -91,8 +91,14 @@ jobs:
           PPPOE_USER: ${{ github.event.inputs.pppoe_user || '' }}
           PPPOE_PASS: ${{ github.event.inputs.pppoe_pass || '' }}
         run: |
-          chmod +x "$GITHUB_WORKSPACE/$CUSTOM_SCRIPT"
-          "$GITHUB_WORKSPACE/$CUSTOM_SCRIPT" "$LEDE_PATH" "$TARGET_SEED"
+          # 优先执行平台专属脚本，若不存在则回退至通用分发器 custom.sh
+          if [ -f "$GITHUB_WORKSPACE/$CUSTOM_SCRIPT" ]; then
+            chmod +x "$GITHUB_WORKSPACE/$CUSTOM_SCRIPT"
+            "$GITHUB_WORKSPACE/$CUSTOM_SCRIPT" "$LEDE_PATH"
+          else
+            chmod +x "$GITHUB_WORKSPACE/custom.sh"
+            "$GITHUB_WORKSPACE/custom.sh" "$LEDE_PATH" "$TARGET_SEED"
+          fi
 
       - name: 5. 更新与安装 Feeds (Update & Install Feeds)
         run: |
