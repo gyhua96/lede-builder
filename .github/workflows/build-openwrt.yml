@@ -7,6 +7,10 @@ on:
         description: '选择 config 目录下的 seed 配置文件名 (不带 .seed.config 后缀)'
         required: true
         default: 'jdcloud_re-ss-01'
+      lede_ref:
+        description: 'LEDE 上游分支名、Tag 或 Commit SHA (默认锁定稳定 Commit: cc4d5400)'
+        required: false
+        default: 'cc4d5400d29734c1133423b1e45258fcb0dddf8d'
       custom_ip:
         description: '默认 LAN IP 地址'
         required: false
@@ -42,7 +46,7 @@ on:
 
 env:
   REPO_URL: https://github.com/coolsnowwolf/lede.git
-  REPO_BRANCH: master
+  LEDE_REF: ${{ github.event.inputs.lede_ref || 'cc4d5400d29734c1133423b1e45258fcb0dddf8d' }}
   TARGET_SEED: ${{ github.event.inputs.target_seed || 'jdcloud_re-ss-01' }}
   CONFIG_FILE: config/${{ github.event.inputs.target_seed || 'jdcloud_re-ss-01' }}.seed.config
   CUSTOM_SCRIPT: custom/${{ github.event.inputs.target_seed || 'jdcloud_re-ss-01' }}.sh
@@ -79,8 +83,19 @@ jobs:
 
       - name: 3. 克隆 LEDE 官方源码 (Clone Source Code)
         run: |
-          git clone --depth 1 -b $REPO_BRANCH $REPO_URL lede
+          mkdir lede && cd lede
+          git init
+          git remote add origin $REPO_URL
+          # 支持根据 Commit SHA、Branch 或 Tag 进行精准浅拉取
+          if [[ "$LEDE_REF" =~ ^[0-9a-fA-F]{40}$ ]]; then
+            git fetch --depth 1 origin "$LEDE_REF"
+            git checkout FETCH_HEAD
+          else
+            git fetch --depth 1 origin "$LEDE_REF"
+            git checkout -b "$LEDE_REF" FETCH_HEAD
+          fi
           echo "LEDE_PATH=$GITHUB_WORKSPACE/lede" >> $GITHUB_ENV
+          echo "[✓] 成功检出 LEDE 源码: $(git rev-parse --short HEAD) - $(git log -1 --pretty=%s)"
 
       - name: "4. 运行平台定制脚本注入配置 (Run Platform Custom Script: Feeds / IP / WiFi / WAN)"
         env:
