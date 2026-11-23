@@ -12,6 +12,8 @@ CUSTOM_WIFI_SSID="${CUSTOM_WIFI_SSID:-LEDE-WIFI}"
 CUSTOM_WIFI_KEY="${CUSTOM_WIFI_KEY:-1234567890}"         # 默认密码 1234567890，留空为无密码
 CUSTOM_WIFI_ENCRYPTION="${CUSTOM_WIFI_ENCRYPTION:-psk2}" # 默认 psk2 (WPA2-PSK) 加密
 CUSTOM_WIFI_ENABLE="${CUSTOM_WIFI_ENABLE:-0}"           # 0=开启无线, 1=禁用
+# 当前 LEDE master 使用 Linux 6.18 与新版 mt76/firmware；5 GHz 默认启用 802.11r FT。
+CUSTOM_WIFI_11R="${CUSTOM_WIFI_11R:-1}"
 CUSTOM_HOSTNAME="${CUSTOM_HOSTNAME:-LEDE-Router}"
 CUSTOM_TIMEZONE="${CUSTOM_TIMEZONE:-CST-8}"
 CUSTOM_ZONENAME="${CUSTOM_ZONENAME:-Asia/Shanghai}"
@@ -50,8 +52,9 @@ if [ -f "${FEEDS_CONF}" ]; then
 fi
 
 # ------------------------------------------------------------------------------
-# 2. 斐讯 K2P (MT7621) 专用构建层补丁：
-#    切换为开源 mt7615e 驱动及 wpad-basic-openssl 支持 802.11k/v/r 快速漫游，剔除膨胀驱动
+# 2. 斐讯 K2P (MT7621) 专用构建层：
+#    使用上游开源 mt7615e + firmware；wpad-basic-openssl 提供 WPA2 与 802.11k/v。
+#    当前 LEDE master 的 K2P profile 已是 mt7615e；保留兼容旧上游 profile 的替换逻辑。
 # ------------------------------------------------------------------------------
 MT7621_MK="${TARGET_DIR}/target/linux/ramips/image/mt7621.mk"
 if [ -f "${MT7621_MK}" ]; then
@@ -177,6 +180,10 @@ if [ -f /etc/config/wireless ]; then
 		fi
 
 		uci set wireless.\${iface}.disabled='0'
+		uci set wireless.\${iface}.isolate='0'
+		uci set wireless.\${iface}.disassoc_low_ack='0'
+		uci set wireless.\${iface}.skip_inactivity_poll='1'
+		uci set wireless.\${iface}.max_inactivity='600'
 
 		is_5g=0
 		if [ "\$band" = "5g" ] || [ "\$band" = "6g" ] || [ "\${channel:-0}" -gt 14 ] 2>/dev/null || echo "\$htmode" | grep -q -E 'VHT|HE80|HE160'; then
@@ -197,18 +204,37 @@ if [ -f /etc/config/wireless ]; then
 			uci -q delete wireless.\${iface}.key
 		fi
 
-		# 802.11k/v 漫游
-		uci set wireless.\${iface}.ieee80211k='1'
-		uci set wireless.\${iface}.rrm_neighbor_report='1'
-		uci set wireless.\${iface}.rrm_beacon_report='1'
-		uci set wireless.\${iface}.bss_transition='1'
-		uci set wireless.\${iface}.wnm_sleep_mode='1'
+		if [ "\$is_5g" -eq 1 ]; then
+			# 仅 5 GHz 开启 802.11k/v；兼容移动终端的邻居报告和 BSS Transition。
+			uci set wireless.\${iface}.ieee80211k='1'
+			uci set wireless.\${iface}.rrm_neighbor_report='1'
+			uci set wireless.\${iface}.rrm_beacon_report='1'
+			uci set wireless.\${iface}.bss_transition='1'
+			uci set wireless.\${iface}.wnm_sleep_mode='1'
 
-		# 802.11r 快速漫游
-		uci set wireless.\${iface}.ieee80211r='1'
-		uci set wireless.\${iface}.ft_over_ds='1'
-		uci set wireless.\${iface}.ft_psk_generate_local='1'
-		uci set wireless.\${iface}.mobility_domain='e4a1'
+			# 新版 mt76/firmware 上的 802.11r；使用 over-the-air FT，避免 FT over DS 依赖。
+			uci set wireless.\${iface}.ieee80211r='${CUSTOM_WIFI_11R}'
+			if [ '${CUSTOM_WIFI_11R}' = '1' ]; then
+				uci set wireless.\${iface}.ft_over_ds='0'
+				uci set wireless.\${iface}.ft_psk_generate_local='1'
+				uci set wireless.\${iface}.mobility_domain='e4a1'
+			else
+				uci -q delete wireless.\${iface}.ft_over_ds
+				uci -q delete wireless.\${iface}.ft_psk_generate_local
+				uci -q delete wireless.\${iface}.mobility_domain
+			fi
+		else
+			# 2.4 GHz 留在纯 WPA2-PSK，避免 IoT 因 k/v/r 扩展 IE 断开。
+			uci set wireless.\${iface}.ieee80211k='0'
+			uci set wireless.\${iface}.rrm_neighbor_report='0'
+			uci set wireless.\${iface}.rrm_beacon_report='0'
+			uci set wireless.\${iface}.bss_transition='0'
+			uci set wireless.\${iface}.wnm_sleep_mode='0'
+			uci set wireless.\${iface}.ieee80211r='0'
+			uci -q delete wireless.\${iface}.ft_over_ds
+			uci -q delete wireless.\${iface}.ft_psk_generate_local
+			uci -q delete wireless.\${iface}.mobility_domain
+		fi
 	done
 	uci commit wireless
 	/sbin/wifi reload 2>/dev/null || true
