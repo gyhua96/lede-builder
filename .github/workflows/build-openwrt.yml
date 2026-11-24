@@ -8,9 +8,9 @@ on:
         required: true
         default: 'jdcloud_re-ss-01'
       lede_ref:
-        description: 'LEDE 上游分支名、Tag 或 Commit SHA (默认: master 分支)'
+        description: 'LEDE 上游分支名、Tag 或 Commit SHA（留空：K2P 固定已验证的 5.10 提交；其他目标使用 master）'
         required: false
-        default: 'master'
+        default: ''
       custom_ip:
         description: '默认 LAN IP 地址'
         required: false
@@ -54,7 +54,7 @@ on:
 
 env:
   REPO_URL: https://github.com/coolsnowwolf/lede.git
-  LEDE_REF: ${{ github.event.inputs.lede_ref || 'master' }}
+  LEDE_REF: ${{ github.event.inputs.lede_ref || (github.event.inputs.target_seed == 'phicomm_k2p' && 'cc4d5400d29734c1133423b1e45258fcb0dddf8d' || 'master') }}
   TARGET_SEED: ${{ github.event.inputs.target_seed || 'jdcloud_re-ss-01' }}
   CONFIG_FILE: config/${{ github.event.inputs.target_seed || 'jdcloud_re-ss-01' }}.seed.config
   CUSTOM_SCRIPT: custom/${{ github.event.inputs.target_seed || 'jdcloud_re-ss-01' }}.sh
