@@ -24,10 +24,10 @@ on:
         required: false
         default: '1234567890'
       custom_wifi_11r:
-        description: '仅 K2P：启用 5GHz 802.11r FT（MT7615E key-add 缺陷，默认关闭）'
+        description: '仅 K2P：启用 5GHz 802.11r FT（新版 mt76/firmware；默认开启）'
         required: false
         type: choice
-        default: '0'
+        default: '1'
         options:
           - '0'
           - '1'
@@ -110,7 +110,7 @@ jobs:
           CUSTOM_LAN_IP: ${{ github.event.inputs.custom_ip || '10.0.0.1' }}
           CUSTOM_WIFI_SSID: ${{ github.event.inputs.custom_ssid || 'LEDE-WIFI' }}
           CUSTOM_WIFI_KEY: ${{ github.event.inputs.custom_wifi_key == null && '1234567890' || github.event.inputs.custom_wifi_key }}
-          CUSTOM_WIFI_11R: ${{ github.event.inputs.custom_wifi_11r || '0' }}
+          CUSTOM_WIFI_11R: ${{ github.event.inputs.custom_wifi_11r || '1' }}
           WAN_PROTO: ${{ github.event.inputs.wan_proto || 'dhcp' }}
           PPPOE_USER: ${{ github.event.inputs.pppoe_user || '' }}
           PPPOE_PASS: ${{ github.event.inputs.pppoe_pass || '' }}
