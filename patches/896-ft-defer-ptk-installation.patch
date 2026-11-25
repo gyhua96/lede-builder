@@ -1,0 +1,58 @@
+--- a/src/ap/wpa_auth.h
++++ b/src/ap/wpa_auth.h
+@@ -419,6 +419,7 @@ struct wpa_auth_callbacks {
+ 				   const u8 *eapol, size_t eapol_len);
+ #ifdef CONFIG_IEEE80211R_AP
+ 	struct wpa_state_machine * (*add_sta)(void *ctx, const u8 *sta_addr);
++	/* Nonzero defers PTK installation until the post-association retry. */
+ 	int (*add_sta_ft)(void *ctx, const u8 *sta_addr);
+ 	int (*set_vlan)(void *ctx, const u8 *sta_addr,
+ 			struct vlan_description *vlan);
+--- a/src/ap/wpa_auth_ft.c
++++ b/src/ap/wpa_auth_ft.c
+@@ -2869,7 +2869,7 @@ static inline int wpa_auth_add_sta_ft(st
+ 				      const u8 *addr)
+ {
+ 	if (!wpa_auth->cb->add_sta_ft)
+-		return -1;
++		return 0;
+ 	return wpa_auth->cb->add_sta_ft(wpa_auth->cb_ctx, addr);
+ }
+ 
+@@ -2896,15 +2896,8 @@ void wpa_ft_install_ptk(struct wpa_state
+ 		return;
+ 	}
+ 
+-	if (!retry)
+-		wpa_auth_add_sta_ft(sm->wpa_auth, sm->addr);
+-
+-	/* FIX: add STA entry to kernel/driver here? The set_key will fail
+-	 * most likely without this.. At the moment, STA entry is added only
+-	 * after association has been completed. This function will be called
+-	 * again after association to get the PTK configured, but that could be
+-	 * optimized by adding the STA entry earlier.
+-	 */
++	if (!retry && wpa_auth_add_sta_ft(sm->wpa_auth, sm->addr))
++		return;
+ 	if (wpa_auth_set_key(sm->wpa_auth, 0, alg, sm->addr, sm->keyidx_active,
+ 			     sm->PTK.tk, klen, KEY_FLAG_PAIRWISE_RX_TX))
+ 		return;
+--- a/src/ap/wpa_auth_glue.c
++++ b/src/ap/wpa_auth_glue.c
+@@ -1335,9 +1335,15 @@ static int hostapd_wpa_auth_add_sta_ft(v
+ 		 * previous association. */
+ 		wpa_printf(MSG_DEBUG,
+ 			   "FT: Remove and re-add driver STA entry after successful FT authentication");
+-		return ap_sta_re_add(hapd, sta);
++		if (ap_sta_re_add(hapd, sta))
++			return -1;
+ 	}
+ 
++	/* EPP needs the key before the encrypted association exchange. */
++	if (FULL_AP_CLIENT_STATE_SUPP(hapd->iface->drv_flags) &&
++	    !(sta->flags & WLAN_STA_ASSOC) && !ap_sta_is_epp(sta))
++		return 1;
++
+ 	return 0;
+ }
+ 

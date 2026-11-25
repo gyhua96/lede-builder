@@ -63,6 +63,23 @@ if [ -f "${MT7621_MK}" ]; then
     sed -i -E 's/DEVICE_PACKAGES := .*kmod-mt7615d_dbdc.*/DEVICE_PACKAGES := kmod-mt7615e kmod-mt7615-firmware -wpad-openssl -wpad-mesh-openssl wpad-basic-openssl -uboot-envtools/' "${MT7621_MK}"
 fi
 
+# ------------------------------------------------------------------------------
+# 2a. 修复 mt76/MT7615E AP 侧 802.11r FT 的 PTK 下装竞态：
+#     hostapd 会在 STA 关联前尝试下装 pairwise PTK，mac80211 返回 ENOENT，
+#     形成 "nl80211: key addition failed"。使用已对当前 hostapd 源版本
+#     (5ace39b0) 做过 git apply --check 的上游补丁，延迟至关联后重试。
+# ------------------------------------------------------------------------------
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+FT_PTK_PATCH="${SCRIPT_DIR}/../patches/896-ft-defer-ptk-installation.patch"
+HOSTAPD_PATCH_DIR="${TARGET_DIR}/package/network/services/hostapd/patches"
+if [ -f "${FT_PTK_PATCH}" ] && [ -d "${HOSTAPD_PATCH_DIR}" ]; then
+    echo "[*] [2a/4] 注入 MT7615E 802.11r FT PTK 延迟下装修复..."
+    install -m 0644 "${FT_PTK_PATCH}" "${HOSTAPD_PATCH_DIR}/896-ft-defer-PTK-installation-for-unassociated-AP-clients.patch"
+else
+    echo "[-] 缺少 FT PTK 修复补丁或 hostapd patches 目录，拒绝生成未修复的 K2P 固件" >&2
+    exit 1
+fi
+
 # 确保 hostapd-basic 编译时启用 CONFIG_WNM=y (802.11v BSS Transition 漫游支持)
 HOSTAPD_BASIC_CONF="${TARGET_DIR}/package/network/services/hostapd/files/hostapd-basic.config"
 if [ -f "${HOSTAPD_BASIC_CONF}" ]; then
